@@ -1,0 +1,16 @@
+- hosts: linux
+  gather_facts: true
+  become: yes
+  tasks:
+    - name: "PRELIM | Section 1.6 | Install libselinux-python"
+      yum:
+          name: libselinux-python
+          state: present
+    - name: "PRELIM | Enable SELinux"
+      selinux:
+        conf: /etc/selinux/config
+        policy: "{{ amzn2cis_selinux_pol }}"
+        state: "{{ amzn2cis_selinux_state }}"
+  vars:
+    - amzn2cis_selinux_pol: targeted
+    - amzn2cis_selinux_state: enforcing

@@ -1,0 +1,93 @@
+---
+- debug: msg={{ partition }}
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Create Logical volume {{ partition.lv_name }} for {{ partition.mnt_path }}"
+  lvol:
+    vg: "{{ amzn2cis_vg_name }}"
+    lv: "{{ partition.lv_name }}"
+    size: "{{ partition.size }}"
+    force: yes
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Create ext4 partition on logical volume for {{ partition.mnt_path }}"
+  filesystem:
+    dev: "/dev/{{ amzn2cis_vg_name }}/{{ partition.lv_name }}"
+    fstype: ext4
+
+- name: "SCORED | {{ amzn2cis_section }} | CHECK | Check if {{ partition.mnt_path }} exists"
+  stat:
+    path: "{{ partition.mnt_path }}"
+  register: mnt_path_exists
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Move file from {{ partition.mnt_path }} to {{ partition.mnt_path }}2"
+  command: rsync --xattrs -av --exclude "lib/lxcfs/cgroup" {{ partition.mnt_path }}/ {{ partition.mnt_path }}2
+  when: mnt_path_exists.stat.exists
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Get blkid"
+  command: blkid "/dev/{{ amzn2cis_vg_name }}/{{ partition.lv_name }}" -o value -s UUID
+  register: blkid_result
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Drop Systemd mount file for {{ partition.mnt_path }}"
+  template:
+      src: etc/systemd/system/partition.mount.j2
+      dest: /etc/systemd/system/{{ partition.systemd_name }}.mount
+      owner: root
+      group: root
+      mode: 0644
+  vars:
+      blkid: "{{ blkid_result.stdout }}"
+      mount_path: "{{ partition.mnt_path }}"
+      mount_opts: "{{ partition.mnt_opts }}"
+  
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Reload systemd daemon"
+  command: systemctl daemon-reload
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Enable {{ partition.systemd_name }}.mount"
+  command: systemctl enable {{ partition.systemd_name }}.mount
+  
+# During mounting, all data in {{ partition.mnt_path }} will be lost temporarily before
+# it will be recovered from the temporary backup data in {{ partition.mnt_path }}2.
+# 
+# However, there will be a problem when mounting /home as ansible temporary data is stored in 
+# /home/<ansible_user>. Ansible need to check the temporary data everytime a module is started
+# and finished. Using multiple modules to mount the partition (systemd module) and recover 
+# the data (command module to run rsync) is not possible because the ansible connection will be 
+# dropped and the playbook will fail.
+# 
+# To mitigate this, we create a mount_partition.sh, this script will mount the partition and
+# immidiately recover the data from {{ partition.mnt_path }}2. This script will work on one ansible
+# module, that means when the module is finished, ansible temporary data will be recovered.
+
+# if the directory isn't exist, simply mount it, no need for additional script
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Mount {{ partition.systemd_name }}.mount"
+  command: systemctl start {{ partition.systemd_name }}.mount
+  when: not mnt_path_exists.stat.exists
+
+- name: "SCORED | {{ amzn2cis_section }} | Drop mounting script"
+  template:
+      src: mount_partitions.sh.j2
+      dest: /var/mount_partition.sh
+      owner: root
+      group: root
+      mode: 755
+  vars:
+      systemd_name: "{{partition.systemd_name}}"
+      mnt_path: "{{ partition.mnt_path }}"
+  when: mnt_path_exists.stat.exists
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Run Mounting Script"
+  command: 
+      cmd: ./mount_partition.sh
+      chdir: /var/
+  when: mnt_path_exists.stat.exists
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Remove temporary directory {{ partition.mnt_path }}2"
+  file:
+      state: absent
+      path: "{{ partition.mnt_path }}2/"
+  when: mnt_path_exists.stat.exists
+
+- name: "SCORED | {{ amzn2cis_section }} | PATCH | Remove temporary script"
+  file:
+      state: absent
+      path: /var/mount_partition.sh
+  when: mnt_path_exists.stat.exists

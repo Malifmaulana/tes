@@ -1,0 +1,7 @@
+[Mount]
+What=/dev/disk/by-uuid/{{ blkid }}
+Where={{ mount_path }}
+Type=ext4
+Options={{ mount_opts }}
+[Install]
+WantedBy=multi-user.target

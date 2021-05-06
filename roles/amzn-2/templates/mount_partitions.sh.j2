@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+systemctl start {{ systemd_name }}.mount
+rsync --xattrs -av --exclude "lib/lxcfs/cgroup" {{ mnt_path }}2/ {{ mnt_path }}

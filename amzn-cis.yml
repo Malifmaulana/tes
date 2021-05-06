@@ -1,0 +1,16 @@
+- hosts: linux
+  gather_facts: true
+  become: yes
+ 
+  roles:
+    - role: roles/amzn-2
+      vars:
+        - amzn2cis_section1: true
+        - amzn2cis_section2: true
+        - amzn2cis_section3: true
+        - amzn2cis_section4: true
+        - amzn2cis_section5: true 
+        - amzn2cis_section6: false
+        - amzn2cis_rule_3_3_2: false
+        - amzn2cis_rule_3_3_3: false
+        - amzn2cis_ipv6_required: false
